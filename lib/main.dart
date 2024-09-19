@@ -1,20 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 void main() {
   runApp(DeliveryApp());
 }
-
-// jsdbajhsd
-
-// echo "# Vg" >> README.md
-// git init
-// git add README.md
-// git commit -m "first commit"
-// git branch -M main
-// git remote add origin https://github.com/PrathyushaMunshif/Vg.git
-// git push -u origin main
 
 class DeliveryApp extends StatelessWidget {
   @override
@@ -40,11 +32,55 @@ class _DeliveryBoysPageState extends State<DeliveryBoysPage> {
   List<DeliveryBoy> deliveryBoys = [];
   DateTime selectedDate = DateTime.now();
 
+  void saveData() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Save delivery boys details
+    List<String> deliveryBoysJson = deliveryBoys.map((boy) => jsonEncode(boy.toJson())).toList();
+    prefs.setStringList('deliveryBoys', deliveryBoysJson);
+
+    // Save sales data for each delivery boy
+    for (DeliveryBoy boy in deliveryBoys) {
+      List<String> salesEntriesJson = boy.salesEntries.map((entry) => jsonEncode(entry.toJson())).toList();
+      prefs.setStringList('salesEntries_${boy.name}', salesEntriesJson);
+    }
+  }
+
+  @override
+  void initState() {
+    loadData();
+    super.initState();
+  }
+
+  void loadData() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Load delivery boys details
+    List<String>? deliveryBoysJson = prefs.getStringList('deliveryBoys');
+
+    if (deliveryBoysJson != null) {
+      setState(() {
+        deliveryBoys = deliveryBoysJson.map((json) {
+          return DeliveryBoy.fromJson(jsonDecode(json));
+        }).toList();
+      });
+    }
+
+    // Load sales data for each delivery boy
+    for (DeliveryBoy boy in deliveryBoys) {
+      List<String>? salesEntriesJson = prefs.getStringList('salesEntries_${boy.name}');
+      
+      if (salesEntriesJson != null) {
+        setState(() {
+          boy.salesEntries = salesEntriesJson.map((json) => SalesEntry.fromJson(jsonDecode(json))).toList();
+        });
+      }
+    }
+  }
+
   // Filter delivery boys based on selected date
   List<DeliveryBoy> getFilteredData() {
     return deliveryBoys.map((boy) {
-      // final boy1 = List<DeliveryBoy>();
-      // List<deliveryBoys> 
       // Filter the sales entries for each delivery boy based on the selected date
       boy.salesEntries = boy.salesEntries.where((entry) => isSameDate(entry.date, selectedDate)).toList();
       return boy;
@@ -79,20 +115,20 @@ class _DeliveryBoysPageState extends State<DeliveryBoysPage> {
       setState(() {
         deliveryBoys.add(DeliveryBoy(name: name));
       });
+      saveData();
     }
   }
 
   void _enterSalesDetails(DeliveryBoy boy) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Navigator.of(context)
-          .push(
-            MaterialPageRoute(
-              builder: (context) => SalesDetailsPage(boy: boy),
-            ),
-          )
-          .then((_) {
-        setState(() {});
-      });
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SalesDetailsPage(
+          boy: boy,
+          onSave: saveData, // Pass the saveData callback to SalesDetailsPage
+        ),
+      ),
+    ).then((_) {
+      setState(() {});  // Ensure the UI is refreshed after returning
     });
   }
 
@@ -238,7 +274,25 @@ class DeliveryBoy {
   //  return deliveryBoys.reversed.toList();
   // }
 
-  DeliveryBoy({required this.name});
+  DeliveryBoy({required this.name, this.salesEntries = const []});
+
+  // Convert to JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'salesEntries': salesEntries.map((entry) => entry.toJson()).toList(),
+    };
+  }
+
+  // Convert from JSON
+  factory DeliveryBoy.fromJson(Map<String, dynamic> json) {
+    return DeliveryBoy(
+      name: json['name'],
+      salesEntries: (json['salesEntries'] as List)
+          .map((entry) => SalesEntry.fromJson(entry))
+          .toList(),
+    );
+  }
 
   // Total cash collected
   double get totalCash {
@@ -274,12 +328,33 @@ class SalesEntry {
   DateTime time;
 
   SalesEntry({required this.customerName, required this.cash, required this.upi, required this.date, required this.time});
+
+  Map<String, dynamic> toJson() {
+    return {
+      'customerName': customerName,
+      'cash': cash,
+      'upi': upi,
+      'date': date.toIso8601String(),
+      'time': time.toIso8601String(),
+    };
+  }
+
+  factory SalesEntry.fromJson(Map<String, dynamic> json) {
+    return SalesEntry(
+      customerName: json['customerName'],
+      cash: json['cash'],
+      upi: json['upi'],
+      date: DateTime.parse(json['date']),
+      time: DateTime.parse(json['time'])
+    );
+  }
 }
 
 class SalesDetailsPage extends StatefulWidget {
   final DeliveryBoy boy;
+  final VoidCallback onSave;  // Add the callback for saving data
 
-  SalesDetailsPage({required this.boy});
+  SalesDetailsPage({required this.boy, required this.onSave});
 
   @override
   _SalesDetailsPageState createState() => _SalesDetailsPageState();
@@ -291,6 +366,35 @@ class _SalesDetailsPageState extends State<SalesDetailsPage> {
   double upi = 0;
   DateTime selectedDate = DateTime.now(); // Set the default date to now
   DateTime selectedTime = DateTime.now();
+
+  void _saveSalesDetails() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Convert sales entries to a list of JSON strings
+    List<String> salesEntriesJson = widget.boy.salesEntries.map((entry) => jsonEncode(entry.toJson())).toList();
+
+    // Save the JSON strings list to SharedPreferences
+    prefs.setStringList('salesEntries_${widget.boy.name}', salesEntriesJson);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSalesDetails(); // Load sales details when the page initializes
+  }
+
+  void _loadSalesDetails() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Get the list of JSON strings from SharedPreferences
+    List<String>? salesEntriesJson = prefs.getStringList('salesEntries_${widget.boy.name}');
+
+    if (salesEntriesJson != null) {
+      setState(() {
+        widget.boy.salesEntries = salesEntriesJson.map((json) => SalesEntry.fromJson(jsonDecode(json))).toList();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -401,7 +505,10 @@ class _SalesDetailsPageState extends State<SalesDetailsPage> {
 
                   setState(() {
                     widget.boy.addSalesEntry(customerName, cash, upi, selectedDate, selectedTime);
+                    // _saveSalesDetails();
+                    // (context as Element).markNeedsBuild();
                   });
+                  widget.onSave(); 
                   Navigator.pop(context);
                 }
               },
@@ -528,8 +635,6 @@ class _DeliveryBoySalesPageState extends State<DeliveryBoySalesPage> {
         );
       },
     ),
-
-
     );
   }
 }
