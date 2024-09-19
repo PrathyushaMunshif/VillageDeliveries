@@ -3,6 +3,7 @@ import 'package:intl/intl.dart'; // Import for date formatting
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:developer';
 
 void main() {
   runApp(DeliveryApp());
@@ -78,21 +79,7 @@ class _DeliveryBoysPageState extends State<DeliveryBoysPage> {
     }
   }
 
-  // Filter delivery boys based on selected date
-  List<DeliveryBoy> getFilteredData() {
-    return deliveryBoys.map((boy) {
-      // Filter the sales entries for each delivery boy based on the selected date
-      boy.salesEntries = boy.salesEntries.where((entry) => isSameDate(entry.date, selectedDate)).toList();
-      return boy;
-    }).toList().reversed.toList();
-  }
-
-  // Helper function to compare two dates (ignores time)
-  bool isSameDate(DateTime date1, DateTime date2) {
-    return date1.year == date2.year && date1.month == date2.month && date1.day == date2.day;
-  }
-
-  void _pickDate() async {
+  void _selectDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: selectedDate,
@@ -102,12 +89,34 @@ class _DeliveryBoysPageState extends State<DeliveryBoysPage> {
     if (picked != null && picked != selectedDate) {
       setState(() {
         selectedDate = picked;
+        // loadData(); // Reload data to reflect the selected date
       });
     }
   }
 
-  List<DeliveryBoy> getData(){
-   return deliveryBoys.reversed.toList();
+  double _calculateTotalCashForBoy(DeliveryBoy boy) {
+    return boy.salesEntries
+        .where((entry) => DateFormat('yyyy-MM-dd').format(entry.date) == DateFormat('yyyy-MM-dd').format(selectedDate))
+        .fold(0.0, (double total, entry) => total + entry.cash);
+  }
+
+  double _calculateTotalUPIForBoy(DeliveryBoy boy) {
+    return boy.salesEntries
+        .where((entry) => DateFormat('yyyy-MM-dd').format(entry.date) == DateFormat('yyyy-MM-dd').format(selectedDate))
+        .fold(0.0, (double total, entry) => total + entry.upi);
+  }
+
+  double _calculateTotalAmountForBoy(DeliveryBoy boy) {
+    return _calculateTotalCashForBoy(boy) + _calculateTotalUPIForBoy(boy);
+  }
+
+  List<DeliveryBoy> getData() {
+    // Filter data based on the selected date
+    return deliveryBoys
+        .where((boy) => boy.salesEntries.any((entry) => DateFormat('yyyy-MM-dd').format(entry.date) == DateFormat('yyyy-MM-dd').format(selectedDate)))
+        .toList()
+        .reversed
+        .toList();
   }
 
   void _addDeliveryBoy(String name) {
@@ -136,7 +145,7 @@ class _DeliveryBoysPageState extends State<DeliveryBoysPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => DeliveryBoySalesPage(boy: boy),
+          builder: (context) => DeliveryBoySalesPage(boy: boy, selectedDate: selectedDate),
         ),
       );
     });
@@ -168,8 +177,8 @@ class _DeliveryBoysPageState extends State<DeliveryBoysPage> {
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.calendar_today, size: 20, color: Colors.black), // Small date picker icon
-              onPressed: _pickDate, // Function to open date picker
+              icon: Icon(Icons.calendar_today, size: 20, color: Colors.black),
+              onPressed: _selectDate,
             ),
           ],
         ),
@@ -179,15 +188,15 @@ class _DeliveryBoysPageState extends State<DeliveryBoysPage> {
         children: [
           Expanded(
             child: ListView.builder(
-              itemCount: getFilteredData().length,
+              itemCount: deliveryBoys.length,
               itemBuilder: (context, index) {
-                DeliveryBoy boy = getFilteredData()[index];
+                DeliveryBoy boy = deliveryBoys.reversed.toList()[index];
                 return ListTile(
                   title: Text(boy.name),
                   subtitle: Text(
-                    'Cash: ₹${boy.totalCash.toStringAsFixed(2)}, '
-                    'UPI: ₹${boy.totalUPI.toStringAsFixed(2)}, '
-                    'Total: ₹${boy.totalAmount.toStringAsFixed(2)}',
+                    'Cash: ₹${_calculateTotalCashForBoy(boy).toStringAsFixed(0)}, '
+                    'UPI: ₹${_calculateTotalUPIForBoy(boy).toStringAsFixed(0)}, '
+                    'Total: ₹${_calculateTotalAmountForBoy(boy).toStringAsFixed(0)}',
                   ),
                   onTap: () => _viewSalesDetails(boy),
                   trailing: IconButton(
@@ -204,17 +213,17 @@ class _DeliveryBoysPageState extends State<DeliveryBoysPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Total Cash: ₹${_calculateTotalCashForAllDeliveryBoys().toStringAsFixed(2)}',
+                  'Total Cash: ₹${deliveryBoys.fold(0.0, (total, boy) => total + _calculateTotalCashForBoy(boy)).toStringAsFixed(2)}',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 SizedBox(height: 8),
                 Text(
-                  'Total UPI: ₹${_calculateTotalUPIForAllDeliveryBoys().toStringAsFixed(2)}',
+                  'Total UPI: ₹${deliveryBoys.fold(0.0, (total, boy) => total + _calculateTotalUPIForBoy(boy)).toStringAsFixed(2)}',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 SizedBox(height: 8),
                 Text(
-                  'Total Amount: ₹${_calculateTotalSalesForAllDeliveryBoys().toStringAsFixed(2)}',
+                  'Total Amount: ₹${deliveryBoys.fold(0.0, (total, boy) => total + _calculateTotalAmountForBoy(boy)).toStringAsFixed(2)}',
                   style: TextStyle(
                       fontSize: 18, fontWeight: FontWeight.bold, fontStyle: FontStyle.italic),
                 ),
@@ -502,7 +511,9 @@ class _SalesDetailsPageState extends State<SalesDetailsPage> {
               style: style,
               onPressed: () {
                 if (customerName.isNotEmpty && (cash > 0 || upi > 0)) {
-
+                  
+                  // DateTime selectedDate = DateTime(2024, 9, 16); // Directly set the date
+                  // log('selectedDate:$selectedDate');
                   setState(() {
                     widget.boy.addSalesEntry(customerName, cash, upi, selectedDate, selectedTime);
                     // _saveSalesDetails();
@@ -523,11 +534,17 @@ class _SalesDetailsPageState extends State<SalesDetailsPage> {
 
 class DeliveryBoySalesPage extends StatefulWidget {
   final DeliveryBoy boy;
+  final DateTime selectedDate;
 
-  DeliveryBoySalesPage({required this.boy});
+  DeliveryBoySalesPage({required this.boy, required this.selectedDate});
 
   @override
   _DeliveryBoySalesPageState createState() => _DeliveryBoySalesPageState();
+
+  // @override
+  // Widget build(BuildContext context) {
+  //   return DeliveryBoySalesPageState(boy: boy, selectedDate: selectedDate); // Pass selectedDate to state
+  // }
 }
 
 class _DeliveryBoySalesPageState extends State<DeliveryBoySalesPage> {
@@ -596,17 +613,21 @@ class _DeliveryBoySalesPageState extends State<DeliveryBoySalesPage> {
 
   @override
   Widget build(BuildContext context) {
-    
+    // Filter sales entries based on the selected date
+    List<SalesEntry> filteredEntries = widget.boy.salesEntries.where((entry) {
+      return DateFormat('yyyy-MM-dd').format(entry.date) == DateFormat('yyyy-MM-dd').format(widget.selectedDate);
+    }).toList();
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('Sales for ${widget.boy.name}'),
+        title: Text('Sales for 111 ${widget.boy.name}'),
         centerTitle: true,
         backgroundColor: Colors.cyan[700],
       ),
       body: ListView.builder(
-      itemCount: widget.boy.salesEntries.length,
+      itemCount: filteredEntries.length,
       itemBuilder: (context, index) {
-        SalesEntry entry = widget.boy.salesEntries.reversed.toList()[index];
+        SalesEntry entry = filteredEntries.reversed.toList()[index];
         return Card(
           child: ListTile(
             title: Row(
